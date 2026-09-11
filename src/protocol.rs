@@ -835,7 +835,11 @@ pub enum TransactionResult {
 pub struct HoldingsPage {
     /// Parsed securities positions.
     pub holdings: Vec<SecurityHolding>,
-    /// If Some, more data is available — call `holdings()` again with this value.
+    /// The bank's own `HIWPD` binary payloads, undecoded and in the order it
+    /// stated them. A caller that parses positions from those bytes itself
+    /// takes them from here.
+    pub raw_payloads: Vec<Vec<u8>>,
+    /// If Some, more data is available; call `holdings()` again with this value.
     pub touchdown: Option<TouchdownPoint>,
 }
 
@@ -845,7 +849,9 @@ pub enum HoldingsResult {
     Success(HoldingsPage),
     /// Bank requires TAN for this operation.
     NeedTan(TanChallenge),
-    /// No holdings data in response (depot may be empty or segment not supported).
+    /// No holdings data in response: no `HIWPD` position and no binary
+    /// payload, and no further page (the depot is empty or the segment is
+    /// unsupported).
     Empty,
 }
 
@@ -1019,14 +1025,16 @@ impl Dialog<Open> {
 
         // Parse HIWPD segments
         let holdings = parse_hiwpd(&response.segments);
+        let raw_payloads = hiwpd_payloads(&response.segments);
         let td = response.touchdown();
 
-        if holdings.is_empty() && td.is_none() {
+        if holdings.is_empty() && raw_payloads.is_empty() && td.is_none() {
             return Ok(HoldingsResult::Empty);
         }
 
         Ok(HoldingsResult::Success(HoldingsPage {
             holdings,
+            raw_payloads,
             touchdown: td,
         }))
     }
